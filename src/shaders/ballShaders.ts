@@ -84,16 +84,14 @@ void main() {
   float crackDist;
   voronoi(position * 4.0 + snoise(position * 2.0)*0.5, crackDist);
   
-  float baseCrackWidth = 0.04;
-  float activeCrackWidth = baseCrackWidth + uPressure * 0.2; // Global crack opening
+  float baseCrackWidth = 0.02;
+  float activeCrackWidth = baseCrackWidth + uPressure * 0.15; // Global crack opening
   float isCrack = smoothstep(activeCrackWidth, activeCrackWidth - 0.05, crackDist);
   
-  // Create physical dent for crack, but very subtle so it doesn't look completely hollow
-  vec3 pos = position - normal * (isCrack * 0.05); 
-  
-  csm_Position = pos;
+  // No physical dent needed since we discard the pixels to show holes
+  csm_Position = position;
   vCrack = isCrack;
-  vec3 viewDirection = normalize(cameraPosition - (modelMatrix * vec4(pos, 1.0)).xyz);
+  vec3 viewDirection = normalize(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);
   vFresnel = pow(1.0 - max(dot(normal, viewDirection), 0.0), 3.0);
 }
 `;
@@ -105,22 +103,29 @@ varying vec3 vLocalPos;
 varying float vFresnel;
 
 void main() {
+  // Discard pixels where crack value is high (creates holes)
+  if (vCrack > 0.5) {
+    discard;
+  }
+  
   vec3 waxColor = vec3(0.9, 0.95, 1.0);
-  vec3 slimeColor = vec3(1.0, 0.3, 0.7);
   vec3 iridescent = mix(waxColor, vec3(1.0, 0.8, 0.9), vFresnel);
-  vec3 finalColor = mix(iridescent, slimeColor, vCrack);
-  csm_DiffuseColor = vec4(finalColor, 1.0);
+  
+  csm_DiffuseColor = vec4(iridescent, 1.0);
 }
 `;
 
 export const butterVertexShader = /* glsl */ `
 ${glslNoise}
 uniform float uTime;
+uniform float uStretch; // How much it's being pulled
 varying vec3 vLocalPos;
 
 void main() {
   vLocalPos = position;
-  csm_Position = position;
+  // Visual wobble that increases when stretched
+  float wobble = snoise(position * 2.5 + uTime * 0.6) * (0.02 + uStretch * 0.05);
+  csm_Position = position + normal * wobble;
 }
 `;
 

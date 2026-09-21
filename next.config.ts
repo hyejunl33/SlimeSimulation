@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   },
   // In Next.js 16 it's at the root config or experimental. The log says root level.
   allowedDevOrigins: [
+    "cenyp-125-136-129-212.run.pinggy-free.link",
+    "dyfrw-125-136-129-212.free.pinggy.net",
     "teiqb-210-110-58-28.free.pinggy.net",
     "gzech-210-110-58-28.free.pinggy.net",
     "172.17.6.186",
