@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Toss Product Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  
+  --color-toss-blue: #3182f6;
+  --color-toss-blue-hover: #1b64da;
+  --color-toss-gray-50: #f9fafb;
+  --color-toss-gray-100: #f3f4f6;
+  --color-toss-gray-500: #6b7280;
+  --color-toss-gray-800: #1f2937;
+  --color-toss-gray-900: #111827;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: var(--color-toss-gray-50);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
