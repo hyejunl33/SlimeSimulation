@@ -23,18 +23,10 @@ export const useStore = create<GameState>()(
 
       checkAttendance: () => {
         const now = Date.now();
-        const state = get();
-        
-        if (!state.lastVisit) {
+        const { lastVisit, addPoints } = get();
+        if (!lastVisit || now - lastVisit > 24 * 60 * 60 * 1000) {
+          addPoints(20);
           set({ lastVisit: now });
-        } else {
-          const hoursSince = (now - state.lastVisit) / (1000 * 60 * 60);
-          if (hoursSince > 24) {
-            set((state) => ({ 
-              points: state.points + 20,
-              lastVisit: now 
-            }));
-          }
         }
       }
     }),
