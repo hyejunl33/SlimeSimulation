@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useCallback, useMemo, useEffect } from 'react';
+import { useRef, useCallback, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import CustomShaderMaterial from 'three-custom-shader-material';
@@ -10,91 +10,79 @@ import { getSoundForBall } from '../sound/ballSound';
 import { useStore } from '../store/useStore';
 
 const BEAD_COUNT = 150;
-const RADIUS = 0.9; 
 
 export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }) {
   const storeLevel = useStore((state) => state.level);
   const level = overrideLevel || storeLevel;
   const meshRef = useRef<THREE.Mesh>(null);
   
-  const pointerRef = useRef(new THREE.Vector3());
-  const lastPointerRef = useRef(new THREE.Vector3());
-  const pressureRef = useRef(0);
-  const isDownRef = useRef(false);
-  
   useCursor(true, 'pointer', 'auto');
 
-  const gravityRef = useRef(new THREE.Vector3(0, -9.8, 0));
-  const hasRequestedPermission = useRef(false);
+  // Multi-touch tracking
+  const activePointers = useRef(new Map<number, THREE.Vector3>());
+  
+  // Real Crunch Slime: Beads attached to surface
+  const beadIndices = useRef<number[]>([]);
+  const beadsColor = useMemo(() => {
+    return Array.from({ length: BEAD_COUNT }).map(() => new THREE.Color().setHSL(Math.random(), 0.8, 0.6));
+  }, []);
 
-  // CPU Sculpting Geometry
-  const geometry = useMemo(() => new THREE.IcosahedronGeometry(1, 128), []); // Higher res for clay sculpting
-
-  useEffect(() => {
-    // Reset geometry on level change
-    geometry.copy(new THREE.IcosahedronGeometry(1, 128));
-  }, [level, geometry]);
-
-  useEffect(() => {
-    if (level !== 3) return;
-    const handleOrientation = (e: DeviceOrientationEvent) => {
-      if (e.gamma !== null && e.beta !== null) {
-        const x = e.gamma / 90;
-        const y = -e.beta / 90; 
-        gravityRef.current.set(x * 15, y * 15, -2);
-      }
-    };
-    if (typeof (DeviceOrientationEvent as any).requestPermission !== 'function') {
-      window.addEventListener('deviceorientation', handleOrientation);
+  // CPU Sculpting Geometry (Organic Clay Base)
+  const geometry = useMemo(() => {
+    const geo = new THREE.IcosahedronGeometry(1.2, 48); // High res for smooth clay
+    const pos = geo.attributes.position;
+    
+    // Apply organic noise for lumpy clay look (not a perfect sphere)
+    for (let i = 0; i < pos.count; i++) {
+      const v = new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i));
+      // Low frequency sine waves to create organic lumps
+      const bump = Math.sin(v.x * 3.1) * Math.cos(v.y * 2.8) * 0.12 + Math.sin(v.z * 4.0) * 0.08;
+      v.add(v.clone().normalize().multiplyScalar(bump));
+      pos.setXYZ(i, v.x, v.y, v.z);
     }
-    return () => window.removeEventListener('deviceorientation', handleOrientation);
-  }, [level]);
+    geo.computeVertexNormals();
+
+    // Attach beads randomly to vertices
+    const indices = [];
+    for(let i=0; i < BEAD_COUNT; i++) {
+      indices.push(Math.floor(Math.random() * pos.count));
+    }
+    beadIndices.current = indices;
+
+    return geo;
+  }, []);
 
   const uniforms = useMemo(() => ({
     uTime: { value: 0 },
-    uPointer: { value: new THREE.Vector3() },
     uPressure: { value: 0 },
   }), []);
-
-  const beadsData = useMemo(() => {
-    return Array.from({ length: BEAD_COUNT }).map(() => ({
-      position: new THREE.Vector3((Math.random() - 0.5) * RADIUS, (Math.random() - 0.5) * RADIUS, (Math.random() - 0.5) * RADIUS),
-      velocity: new THREE.Vector3(0, 0, 0),
-      color: new THREE.Color().setHSL(Math.random(), 0.8, 0.5)
-    }));
-  }, []);
 
   const instanceMeshRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
-  useFrame(({ clock }, delta) => {
+  useFrame(({ clock }) => {
     uniforms.uTime.value = clock.getElapsedTime();
-    if (isDownRef.current) {
-      pressureRef.current = Math.min(pressureRef.current + 0.05, 1.0);
-    } else {
-      pressureRef.current *= 0.92;
+    
+    // Decay pressure over time if no active touches
+    if (activePointers.current.size === 0) {
+      uniforms.uPressure.value *= 0.92;
     }
-    uniforms.uPressure.value = pressureRef.current;
 
+    // Sync Beads with deformed clay surface (Real Crunch Slime)
     if (level === 3 && instanceMeshRef.current) {
-      const dt = Math.min(delta, 0.05);
-      const friction = 0.98;
-      beadsData.forEach((bead, i) => {
-        bead.velocity.addScaledVector(gravityRef.current, dt);
-        if (isDownRef.current) {
-          const repel = new THREE.Vector3().subVectors(bead.position, pointerRef.current);
-          const dist = repel.length();
-          if (dist < 0.5) bead.velocity.add(repel.normalize().multiplyScalar(15 * dt * (0.5 - dist)));
-        }
-        bead.velocity.multiplyScalar(friction);
-        bead.position.addScaledVector(bead.velocity, dt);
-        const distFromCenter = bead.position.length();
-        if (distFromCenter > RADIUS) {
-          const normal = bead.position.clone().normalize();
-          bead.position.copy(normal.multiplyScalar(RADIUS));
-          bead.velocity.reflect(normal).multiplyScalar(0.5);
-        }
-        dummy.position.copy(bead.position);
+      const pos = geometry.attributes.position;
+      const norm = geometry.attributes.normal;
+      
+      beadIndices.current.forEach((vIdx, i) => {
+        const v = new THREE.Vector3(pos.getX(vIdx), pos.getY(vIdx), pos.getZ(vIdx));
+        const n = new THREE.Vector3(norm.getX(vIdx), norm.getY(vIdx), norm.getZ(vIdx));
+        
+        // Push beads slightly out so they stick out of the slime surface
+        v.add(n.multiplyScalar(0.04));
+        
+        dummy.position.copy(v);
+        // Align bead with surface normal
+        dummy.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
         dummy.updateMatrix();
         instanceMeshRef.current!.setMatrixAt(i, dummy.matrix);
       });
@@ -102,56 +90,10 @@ export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }
     }
   });
 
-  const handlePointerMove = useCallback((e: any) => {
-    pointerRef.current.copy(e.point);
-    uniforms.uPointer.value.copy(pointerRef.current);
-
-    // CPU Plastic Sculpting
-    if (isDownRef.current && (level === 1 || level === 2)) {
-      const positions = geometry.attributes.position;
-      const array = positions.array as Float32Array;
-      const delta = new THREE.Vector3().subVectors(e.point, lastPointerRef.current);
-      
-      let modified = false;
-      for (let i = 0; i < array.length; i += 3) {
-        const v = new THREE.Vector3(array[i], array[i+1], array[i+2]);
-        const dist = v.distanceTo(e.point);
-        
-        if (level === 1 && dist < 0.25) { // Wax: Digs in (Crater)
-          const push = v.clone().normalize().multiplyScalar(-0.15 * (0.25 - dist));
-          v.add(push);
-          array[i] = v.x; array[i+1] = v.y; array[i+2] = v.z;
-          modified = true;
-        } else if (level === 2 && dist < 0.6) { // Butter: Smears and pulls (Stretch)
-          const pull = delta.clone().multiplyScalar(2.0 * (0.6 - dist));
-          v.add(pull);
-          array[i] = v.x; array[i+1] = v.y; array[i+2] = v.z;
-          modified = true;
-        }
-      }
-      if (modified) {
-        positions.needsUpdate = true;
-        geometry.computeVertexNormals();
-      }
-    }
-    lastPointerRef.current.copy(e.point);
-  }, [uniforms, level, geometry]);
-
   const handlePointerDown = useCallback((e: any) => {
-    isDownRef.current = true;
-    pressureRef.current += 0.3;
-    lastPointerRef.current.copy(e.point);
-    
-    if (level === 3 && !hasRequestedPermission.current && typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
-      hasRequestedPermission.current = true;
-      (DeviceOrientationEvent as any).requestPermission().then((res: string) => {
-        if (res === 'granted') {
-          window.addEventListener('deviceorientation', (ev) => {
-            if (ev.gamma !== null && ev.beta !== null) gravityRef.current.set(ev.gamma / 90 * 15, -ev.beta / 90 * 15, -2);
-          });
-        }
-      }).catch(console.error);
-    }
+    e.target.setPointerCapture(e.pointerId);
+    activePointers.current.set(e.pointerId, e.point.clone());
+    uniforms.uPressure.value = Math.min(uniforms.uPressure.value + 0.3, 1.0);
     
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       if (level === 1) navigator.vibrate(50);
@@ -160,56 +102,120 @@ export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }
     }
     
     const sound = getSoundForBall(level);
-    if (level === 2) (sound as any).playPress(pressureRef.current);
+    if (level === 2) (sound as any).playPress(uniforms.uPressure.value);
     else if (level === 1) (sound as any).playTap();
     else (sound as any).playCrunch(5);
-  }, [level]);
+  }, [level, uniforms]);
 
-  const handlePointerUp = useCallback(() => {
-    isDownRef.current = false;
+  const handlePointerMove = useCallback((e: any) => {
+    if (!activePointers.current.has(e.pointerId)) return;
+    
+    const prevPoint = activePointers.current.get(e.pointerId)!;
+    const currPoint = e.point;
+    const delta = new THREE.Vector3().subVectors(currPoint, prevPoint);
+    
+    if (delta.lengthSq() < 0.0001) return;
+
+    // CPU Plastic Sculpting & Volume Preservation
+    const positions = geometry.attributes.position;
+    let modified = false;
+    
+    const deltaLen = delta.length();
+    const deltaNorm = delta.clone().normalize();
+
+    for (let i = 0; i < positions.count; i++) {
+      const v = new THREE.Vector3(positions.getX(i), positions.getY(i), positions.getZ(i));
+      const distToPointer = v.distanceTo(currPoint);
+      
+      if (level === 1) { // Wax: Digs in (Crater)
+        if (distToPointer < 0.4) {
+          const push = v.clone().normalize().multiplyScalar(-0.25 * (0.4 - distToPointer));
+          v.add(push);
+          positions.setXYZ(i, v.x, v.y, v.z);
+          modified = true;
+        }
+      } else { 
+        // Level 2 (Butter) & 3 (Crunch): Stretches and Squashes (Volume Preservation)
+        if (distToPointer < 0.7) {
+          // Pull vertices towards finger
+          const pull = delta.clone().multiplyScalar(2.0 * (0.7 - distToPointer));
+          v.add(pull);
+          
+          // Squash sides inward to preserve volume (mozzarella effect)
+          const toV = v.clone().sub(currPoint);
+          const projLength = toV.dot(deltaNorm);
+          const perp = toV.clone().sub(deltaNorm.clone().multiplyScalar(projLength));
+          const perpDist = perp.length();
+          
+          // If vertex is perpendicular to the stretch direction, squeeze it
+          if (Math.abs(projLength) < 0.6 && perpDist > 0.05 && perpDist < 0.9) {
+             const squeeze = perp.normalize().multiplyScalar(-deltaLen * 0.8 * (0.9 - perpDist));
+             v.add(squeeze);
+          }
+          
+          positions.setXYZ(i, v.x, v.y, v.z);
+          modified = true;
+        }
+      }
+    }
+    
+    if (modified) {
+      positions.needsUpdate = true;
+      geometry.computeVertexNormals();
+    }
+    
+    activePointers.current.set(e.pointerId, currPoint.clone());
+  }, [level, geometry]);
+
+  const handlePointerUp = useCallback((e: any) => {
+    e.target.releasePointerCapture(e.pointerId);
+    activePointers.current.delete(e.pointerId);
+    
     const sound = getSoundForBall(level);
     if (sound.playRelease) sound.playRelease();
   }, [level]);
-
-  if (level === 3) {
-    return (
-      <group onPointerMove={handlePointerMove} onPointerDown={handlePointerDown} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}>
-        <mesh>
-          <icosahedronGeometry args={[1, 32]} />
-          <meshPhysicalMaterial transmission={0.95} roughness={0.05} ior={1.4} thickness={0.5} transparent opacity={0.3} color="#ffffff" />
-        </mesh>
-        <Instances ref={instanceMeshRef} limit={BEAD_COUNT}>
-          <sphereGeometry args={[0.06, 8, 8]} />
-          <meshStandardMaterial />
-          {beadsData.map((bead, i) => (
-            <Instance key={i} position={bead.position} color={bead.color} />
-          ))}
-        </Instances>
-      </group>
-    );
-  }
 
   const vShader = level === 1 ? waxVertexShader : butterVertexShader;
   const fShader = level === 1 ? waxFragmentShader : butterFragmentShader;
 
   return (
-    <mesh
-      ref={meshRef}
-      geometry={geometry}
-      onPointerMove={handlePointerMove}
-      onPointerDown={handlePointerDown}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
-    >
-      <CustomShaderMaterial
-        baseMaterial={THREE.MeshPhysicalMaterial}
-        vertexShader={vShader}
-        fragmentShader={fShader}
-        uniforms={uniforms}
-        clearcoat={level === 1 ? 1.0 : 0.0}
-        roughness={level === 1 ? 0.0 : 0.6}
-        metalness={0.1}
-      />
-    </mesh>
+    <group>
+      {/* Base Clay Mesh */}
+      <mesh
+        ref={meshRef}
+        geometry={geometry}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      >
+        <CustomShaderMaterial
+          baseMaterial={THREE.MeshPhysicalMaterial}
+          vertexShader={vShader}
+          fragmentShader={fShader}
+          uniforms={uniforms}
+          clearcoat={level === 1 ? 1.0 : (level === 3 ? 1.0 : 0.0)}
+          roughness={level === 1 ? 0.2 : (level === 3 ? 0.0 : 0.6)}
+          metalness={0.1}
+          transmission={level === 3 ? 0.95 : 0.0}
+          ior={level === 3 ? 1.4 : 1.0}
+          thickness={level === 3 ? 0.5 : 0.0}
+          transparent={level === 3}
+          opacity={level === 3 ? 0.6 : 1.0}
+          color={level === 3 ? "#ffffff" : undefined}
+        />
+      </mesh>
+      
+      {/* Crunch Beads (Only for Level 3) */}
+      {level === 3 && (
+        <Instances ref={instanceMeshRef} limit={BEAD_COUNT}>
+          <sphereGeometry args={[0.07, 16, 16]} />
+          <meshPhysicalMaterial roughness={0.1} clearcoat={1.0} transmission={0.2} />
+          {beadsColor.map((color, i) => (
+            <Instance key={i} color={color} />
+          ))}
+        </Instances>
+      )}
+    </group>
   );
 }
