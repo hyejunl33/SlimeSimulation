@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useCallback, useMemo, useEffect, useState } from 'react';
+import { useRef, useCallback, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import CustomShaderMaterial from 'three-custom-shader-material';
@@ -10,7 +10,7 @@ import { getSoundForBall } from '../sound/ballSound';
 import { useStore } from '../store/useStore';
 
 const BEAD_COUNT = 150;
-const RADIUS = 0.9; // inside the glass shell
+const RADIUS = 0.9; 
 
 export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }) {
   const storeLevel = useStore((state) => state.level);
@@ -18,14 +18,22 @@ export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }
   const meshRef = useRef<THREE.Mesh>(null);
   
   const pointerRef = useRef(new THREE.Vector3());
+  const lastPointerRef = useRef(new THREE.Vector3());
   const pressureRef = useRef(0);
   const isDownRef = useRef(false);
   
   useCursor(true, 'pointer', 'auto');
 
-  // Device Orientation state
   const gravityRef = useRef(new THREE.Vector3(0, -9.8, 0));
   const hasRequestedPermission = useRef(false);
+
+  // CPU Sculpting Geometry
+  const geometry = useMemo(() => new THREE.IcosahedronGeometry(1, 128), []); // Higher res for clay sculpting
+
+  useEffect(() => {
+    // Reset geometry on level change
+    geometry.copy(new THREE.IcosahedronGeometry(1, 128));
+  }, [level, geometry]);
 
   useEffect(() => {
     if (level !== 3) return;
@@ -36,15 +44,10 @@ export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }
         gravityRef.current.set(x * 15, y * 15, -2);
       }
     };
-    
-    // Non-iOS devices just listen directly
     if (typeof (DeviceOrientationEvent as any).requestPermission !== 'function') {
       window.addEventListener('deviceorientation', handleOrientation);
     }
-
-    return () => {
-      window.removeEventListener('deviceorientation', handleOrientation);
-    };
+    return () => window.removeEventListener('deviceorientation', handleOrientation);
   }, [level]);
 
   const uniforms = useMemo(() => ({
@@ -53,14 +56,9 @@ export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }
     uPressure: { value: 0 },
   }), []);
 
-  // Simple physics state for beads
   const beadsData = useMemo(() => {
     return Array.from({ length: BEAD_COUNT }).map(() => ({
-      position: new THREE.Vector3(
-        (Math.random() - 0.5) * RADIUS,
-        (Math.random() - 0.5) * RADIUS,
-        (Math.random() - 0.5) * RADIUS
-      ),
+      position: new THREE.Vector3((Math.random() - 0.5) * RADIUS, (Math.random() - 0.5) * RADIUS, (Math.random() - 0.5) * RADIUS),
       velocity: new THREE.Vector3(0, 0, 0),
       color: new THREE.Color().setHSL(Math.random(), 0.8, 0.5)
     }));
@@ -78,41 +76,24 @@ export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }
     }
     uniforms.uPressure.value = pressureRef.current;
 
-    // Physics update for Level 3
     if (level === 3 && instanceMeshRef.current) {
-      const dt = Math.min(delta, 0.05); // cap delta time
+      const dt = Math.min(delta, 0.05);
       const friction = 0.98;
-
       beadsData.forEach((bead, i) => {
-        // Add gravity
         bead.velocity.addScaledVector(gravityRef.current, dt);
-
-        // If pointer is down, add repulsion from pointer
         if (isDownRef.current) {
           const repel = new THREE.Vector3().subVectors(bead.position, pointerRef.current);
           const dist = repel.length();
-          if (dist < 0.5) {
-            bead.velocity.add(repel.normalize().multiplyScalar(15 * dt * (0.5 - dist)));
-          }
+          if (dist < 0.5) bead.velocity.add(repel.normalize().multiplyScalar(15 * dt * (0.5 - dist)));
         }
-
-        // Apply friction
         bead.velocity.multiplyScalar(friction);
-
-        // Update position
         bead.position.addScaledVector(bead.velocity, dt);
-
-        // Sphere bounds collision (inside the glass shell)
         const distFromCenter = bead.position.length();
         if (distFromCenter > RADIUS) {
-          // Push back inside
           const normal = bead.position.clone().normalize();
           bead.position.copy(normal.multiplyScalar(RADIUS));
-          // Reflect velocity (bounce)
-          bead.velocity.reflect(normal).multiplyScalar(0.5); // damping
+          bead.velocity.reflect(normal).multiplyScalar(0.5);
         }
-
-        // Apply to instance matrix
         dummy.position.copy(bead.position);
         dummy.updateMatrix();
         instanceMeshRef.current!.setMatrixAt(i, dummy.matrix);
@@ -124,27 +105,52 @@ export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }
   const handlePointerMove = useCallback((e: any) => {
     pointerRef.current.copy(e.point);
     uniforms.uPointer.value.copy(pointerRef.current);
-  }, [uniforms]);
 
-  const handlePointerDown = useCallback(() => {
+    // CPU Plastic Sculpting
+    if (isDownRef.current && (level === 1 || level === 2)) {
+      const positions = geometry.attributes.position;
+      const array = positions.array as Float32Array;
+      const delta = new THREE.Vector3().subVectors(e.point, lastPointerRef.current);
+      
+      let modified = false;
+      for (let i = 0; i < array.length; i += 3) {
+        const v = new THREE.Vector3(array[i], array[i+1], array[i+2]);
+        const dist = v.distanceTo(e.point);
+        
+        if (level === 1 && dist < 0.25) { // Wax: Digs in (Crater)
+          const push = v.clone().normalize().multiplyScalar(-0.15 * (0.25 - dist));
+          v.add(push);
+          array[i] = v.x; array[i+1] = v.y; array[i+2] = v.z;
+          modified = true;
+        } else if (level === 2 && dist < 0.6) { // Butter: Smears and pulls (Stretch)
+          const pull = delta.clone().multiplyScalar(2.0 * (0.6 - dist));
+          v.add(pull);
+          array[i] = v.x; array[i+1] = v.y; array[i+2] = v.z;
+          modified = true;
+        }
+      }
+      if (modified) {
+        positions.needsUpdate = true;
+        geometry.computeVertexNormals();
+      }
+    }
+    lastPointerRef.current.copy(e.point);
+  }, [uniforms, level, geometry]);
+
+  const handlePointerDown = useCallback((e: any) => {
     isDownRef.current = true;
     pressureRef.current += 0.3;
+    lastPointerRef.current.copy(e.point);
     
-    // Request DeviceOrientation permission on first user gesture for iOS
     if (level === 3 && !hasRequestedPermission.current && typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
       hasRequestedPermission.current = true;
-      (DeviceOrientationEvent as any).requestPermission()
-        .then((response: string) => {
-          if (response === 'granted') {
-            const handleOrientation = (e: DeviceOrientationEvent) => {
-              if (e.gamma !== null && e.beta !== null) {
-                gravityRef.current.set(e.gamma / 90 * 15, -e.beta / 90 * 15, -2);
-              }
-            };
-            window.addEventListener('deviceorientation', handleOrientation);
-          }
-        })
-        .catch(console.error);
+      (DeviceOrientationEvent as any).requestPermission().then((res: string) => {
+        if (res === 'granted') {
+          window.addEventListener('deviceorientation', (ev) => {
+            if (ev.gamma !== null && ev.beta !== null) gravityRef.current.set(ev.gamma / 90 * 15, -ev.beta / 90 * 15, -2);
+          });
+        }
+      }).catch(console.error);
     }
     
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -189,12 +195,12 @@ export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }
   return (
     <mesh
       ref={meshRef}
+      geometry={geometry}
       onPointerMove={handlePointerMove}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
     >
-      <icosahedronGeometry args={[1, 64]} />
       <CustomShaderMaterial
         baseMaterial={THREE.MeshPhysicalMaterial}
         vertexShader={vShader}

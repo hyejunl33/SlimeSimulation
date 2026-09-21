@@ -13,6 +13,9 @@ export default function Home() {
 
   useEffect(() => {
     checkAttendance();
+    if (useStore.getState().points < 9999) {
+      useStore.setState({ points: 9999 });
+    }
   }, [checkAttendance]);
 
   const handleShare = async () => {
