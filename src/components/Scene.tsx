@@ -11,15 +11,7 @@ export default function Scene() {
         <ambientLight intensity={0.5} />
         <directionalLight position={[10, 10, 5]} intensity={1} />
         <Environment preset="city" />
-        <group position={[-1.8, 0, 0]} scale={0.7}>
-          <WakppuBall overrideLevel={1} />
-        </group>
-        <group position={[0, 0, 0]} scale={0.7}>
-          <WakppuBall overrideLevel={2} />
-        </group>
-        <group position={[1.8, 0, 0]} scale={0.7}>
-          <WakppuBall overrideLevel={3} />
-        </group>
+        <WakppuBall />
         <ContactShadows position={[0, -1.2, 0]} opacity={0.4} scale={10} blur={2.5} far={4} />
       </Canvas>
     </div>

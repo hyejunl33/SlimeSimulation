@@ -13,7 +13,7 @@ interface GameState {
 export const useStore = create<GameState>()(
   persist(
     (set, get) => ({
-      points: 100, // Initial points
+      points: 9999, // Initial points
       level: 1, // 1 to 3
       lastVisit: null,
       
