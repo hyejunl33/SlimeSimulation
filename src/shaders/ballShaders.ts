@@ -1,5 +1,4 @@
 export const glslNoise = /* glsl */ `
-// Simplex 3D Noise 
 vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
 vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
 
@@ -43,7 +42,6 @@ float snoise(vec3 v){
   return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3) ) );
 }
 
-// 3D Voronoi for Wax Cracking
 vec3 hash33(vec3 p) {
   p = vec3( dot(p,vec3(127.1,311.7, 74.7)),
             dot(p,vec3(269.5,183.3,246.1)),
@@ -75,43 +73,26 @@ float voronoi(vec3 x, out float crack) {
 
 export const waxVertexShader = /* glsl */ `
 ${glslNoise}
-
 uniform float uTime;
-uniform vec3 uPointer;
 uniform float uPressure;
-
 varying float vCrack;
 varying vec3 vLocalPos;
 varying float vFresnel;
 
 void main() {
   vLocalPos = position;
-
-  // Real "Wakppu" Ball: Hard wax shell that shatters when pressed!
   float crackDist;
-  voronoi(position * 4.0 + snoise(position * 2.0)*0.5, crackDist); // Wobbly voronoi
+  voronoi(position * 4.0 + snoise(position * 2.0)*0.5, crackDist);
   
-  // Interaction deformation
-  vec3 toPointer = uPointer - position;
-  float dist = length(toPointer);
-  
-  // Calculate pressure effect: if close to pointer, pressure opens cracks!
-  float localPressure = smoothstep(1.5, 0.0, dist) * uPressure;
-  
-  float baseCrackWidth = 0.04; // Micro cracks normally
-  float activeCrackWidth = baseCrackWidth + localPressure * 0.4; // Cracks burst open!
-  
+  float baseCrackWidth = 0.04;
+  float activeCrackWidth = baseCrackWidth + uPressure * 0.2; // Global crack opening
   float isCrack = smoothstep(activeCrackWidth, activeCrackWidth - 0.05, crackDist);
   
-  // The wax shell stays out, the slime inside is pushed in (or revealed)
-  vec3 pos = position - normal * (isCrack * 0.15); // Deep cracks
-  
-  // Overall squish towards the pointer
-  pos += normalize(toPointer) * localPressure * 0.2;
+  // Create physical dent for crack, but very subtle so it doesn't look completely hollow
+  vec3 pos = position - normal * (isCrack * 0.05); 
   
   csm_Position = pos;
   vCrack = isCrack;
-  
   vec3 viewDirection = normalize(cameraPosition - (modelMatrix * vec4(pos, 1.0)).xyz);
   vFresnel = pow(1.0 - max(dot(normal, viewDirection), 0.0), 3.0);
 }
@@ -124,54 +105,22 @@ varying vec3 vLocalPos;
 varying float vFresnel;
 
 void main() {
-  // Outer Wax: Icy blue/white, opaque
   vec3 waxColor = vec3(0.9, 0.95, 1.0);
-  
-  // Inner Slime: Bright magenta/pink pastel, gooey
   vec3 slimeColor = vec3(1.0, 0.3, 0.7);
-  
-  // Add some iridescence to the wax
   vec3 iridescent = mix(waxColor, vec3(1.0, 0.8, 0.9), vFresnel);
-  
   vec3 finalColor = mix(iridescent, slimeColor, vCrack);
-  
   csm_DiffuseColor = vec4(finalColor, 1.0);
-  
-  // Modulate roughness: Wax is matte/rough, Slime is extremely glossy
-  // Note: For CSM, you can't easily set roughness directly unless you hack it or output it,
-  // but we can simulate gloss in color or rely on baseMaterial
 }
 `;
 
 export const butterVertexShader = /* glsl */ `
 ${glslNoise}
-
 uniform float uTime;
-uniform vec3 uPointer;
-uniform float uPressure;
-
 varying vec3 vLocalPos;
 
 void main() {
   vLocalPos = position;
-
-  // Butter slime: Extremely stretchy, creamy, no cracks.
-  float wobble = snoise(position * 2.5 + uTime * 0.6) * 0.05; // squishy breathing
-  vec3 pos = position + normal * wobble;
-  
-  vec3 toPointer = uPointer - pos;
-  float dist = length(toPointer);
-  
-  // Deep pull: stretches heavily towards the pointer
-  float pull = smoothstep(1.8, 0.0, dist) * uPressure; 
-  
-  // Pinching effect: When stretching, it gets thinner in the middle
-  vec3 dir = normalize(toPointer + vec3(0.001)); 
-  
-  // Intense pulling physics
-  pos += dir * pull * 1.5; 
-  
-  csm_Position = pos;
+  csm_Position = position;
 }
 `;
 
@@ -180,18 +129,13 @@ uniform float uTime;
 varying vec3 vLocalPos;
 
 void main() {
-  // Butter slime: Creamy vibrant pastel gradient (Pink, Yellow, Mint)
   vec3 pink = vec3(1.0, 0.6, 0.75);
   vec3 yellow = vec3(1.0, 0.9, 0.5);
   vec3 mint = vec3(0.6, 1.0, 0.8);
-  
-  // Complex beautiful gradient blending
   float n1 = sin(vLocalPos.x * 3.0 + uTime * 1.5) * 0.5 + 0.5;
   float n2 = cos(vLocalPos.y * 3.0 - uTime * 1.2) * 0.5 + 0.5;
-  
   vec3 col = mix(pink, yellow, n1);
   col = mix(col, mint, n2);
-  
   csm_DiffuseColor = vec4(col, 1.0);
 }
 `;

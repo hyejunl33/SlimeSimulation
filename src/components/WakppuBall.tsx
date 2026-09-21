@@ -128,28 +128,30 @@ export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }
       const distToPointer = v.distanceTo(currPoint);
       
       if (level === 1) { // Wax: Digs in (Crater)
-        if (distToPointer < 0.4) {
-          const push = v.clone().normalize().multiplyScalar(-0.25 * (0.4 - distToPointer));
+        if (distToPointer < 0.5) {
+          const pushAmt = Math.exp(-(distToPointer * distToPointer) / 0.1);
+          const push = v.clone().normalize().multiplyScalar(-0.15 * pushAmt);
           v.add(push);
           positions.setXYZ(i, v.x, v.y, v.z);
           modified = true;
         }
       } else { 
-        // Level 2 (Butter) & 3 (Crunch): Stretches and Squashes (Volume Preservation)
-        if (distToPointer < 0.7) {
-          // Pull vertices towards finger
-          const pull = delta.clone().multiplyScalar(2.0 * (0.7 - distToPointer));
+        // Level 2 & 3: Stretches and Squashes (Smooth Gaussian Falloff prevents tearing)
+        if (distToPointer < 0.8) {
+          // Pull vertices towards finger safely
+          const pullAmt = Math.exp(-(distToPointer * distToPointer) / 0.2);
+          const pull = delta.clone().multiplyScalar(1.8 * pullAmt);
           v.add(pull);
           
-          // Squash sides inward to preserve volume (mozzarella effect)
+          // Squash sides inward to preserve volume safely
           const toV = v.clone().sub(currPoint);
           const projLength = toV.dot(deltaNorm);
           const perp = toV.clone().sub(deltaNorm.clone().multiplyScalar(projLength));
           const perpDist = perp.length();
           
-          // If vertex is perpendicular to the stretch direction, squeeze it
-          if (Math.abs(projLength) < 0.6 && perpDist > 0.05 && perpDist < 0.9) {
-             const squeeze = perp.normalize().multiplyScalar(-deltaLen * 0.8 * (0.9 - perpDist));
+          if (Math.abs(projLength) < 0.6 && perpDist > 0.05) {
+             const squeezeAmt = Math.exp(-(perpDist * perpDist) / 0.2);
+             const squeeze = perp.clone().normalize().multiplyScalar(-deltaLen * 0.9 * squeezeAmt);
              v.add(squeeze);
           }
           
@@ -191,6 +193,7 @@ export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }
       >
         <CustomShaderMaterial
           baseMaterial={THREE.MeshPhysicalMaterial}
+          side={THREE.DoubleSide}
           vertexShader={vShader}
           fragmentShader={fShader}
           uniforms={uniforms}
