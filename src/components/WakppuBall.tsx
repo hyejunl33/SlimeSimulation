@@ -12,8 +12,9 @@ import { useStore } from '../store/useStore';
 const BEAD_COUNT = 150;
 const RADIUS = 0.9; // inside the glass shell
 
-export default function WakppuBall() {
-  const level = useStore((state) => state.level);
+export default function WakppuBall({ overrideLevel }: { overrideLevel?: number }) {
+  const storeLevel = useStore((state) => state.level);
+  const level = overrideLevel || storeLevel;
   const meshRef = useRef<THREE.Mesh>(null);
   
   const pointerRef = useRef(new THREE.Vector3());
@@ -24,35 +25,20 @@ export default function WakppuBall() {
 
   // Device Orientation state
   const gravityRef = useRef(new THREE.Vector3(0, -9.8, 0));
+  const hasRequestedPermission = useRef(false);
 
   useEffect(() => {
     if (level !== 3) return;
-
     const handleOrientation = (e: DeviceOrientationEvent) => {
-      // gamma: left-to-right (-90 to 90)
-      // beta: front-to-back (-180 to 180)
       if (e.gamma !== null && e.beta !== null) {
         const x = e.gamma / 90;
-        const y = -e.beta / 90; // negative so tilting phone down makes beads go negative Y
-        // clamp values and apply a scaling factor
+        const y = -e.beta / 90; 
         gravityRef.current.set(x * 15, y * 15, -2);
       }
     };
-
-    // Note: iOS requires permission request for DeviceOrientationEvent
-    if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
-      const enableDeviceOrientation = () => {
-        (DeviceOrientationEvent as any).requestPermission()
-          .then((response: string) => {
-            if (response === 'granted') {
-              window.addEventListener('deviceorientation', handleOrientation);
-            }
-          })
-          .catch(console.error);
-        window.removeEventListener('pointerdown', enableDeviceOrientation);
-      };
-      window.addEventListener('pointerdown', enableDeviceOrientation);
-    } else {
+    
+    // Non-iOS devices just listen directly
+    if (typeof (DeviceOrientationEvent as any).requestPermission !== 'function') {
       window.addEventListener('deviceorientation', handleOrientation);
     }
 
@@ -143,6 +129,23 @@ export default function WakppuBall() {
   const handlePointerDown = useCallback(() => {
     isDownRef.current = true;
     pressureRef.current += 0.3;
+    
+    // Request DeviceOrientation permission on first user gesture for iOS
+    if (level === 3 && !hasRequestedPermission.current && typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
+      hasRequestedPermission.current = true;
+      (DeviceOrientationEvent as any).requestPermission()
+        .then((response: string) => {
+          if (response === 'granted') {
+            const handleOrientation = (e: DeviceOrientationEvent) => {
+              if (e.gamma !== null && e.beta !== null) {
+                gravityRef.current.set(e.gamma / 90 * 15, -e.beta / 90 * 15, -2);
+              }
+            };
+            window.addEventListener('deviceorientation', handleOrientation);
+          }
+        })
+        .catch(console.error);
+    }
     
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       if (level === 1) navigator.vibrate(50);

@@ -31,7 +31,7 @@ export default function Home() {
       <Scene />
       
       <motion.div 
-        className="w-full flex justify-between items-start z-10 pt-4"
+        className="w-full flex justify-between items-start z-10 pt-4 pointer-events-none"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
@@ -41,27 +41,27 @@ export default function Home() {
           <p className="text-[15px] text-gray-500 font-medium tracking-tight">LV.{level} {level === 1 ? '왁스볼' : level === 2 ? '버터볼' : '구슬볼'}</p>
         </div>
         
-        <div className="bg-white/80 backdrop-blur-md px-4 py-2.5 rounded-full shadow-sm border border-gray-100 flex items-center gap-1.5 cursor-pointer" onClick={() => router.push('/collection')}>
+        <div className="bg-white/80 backdrop-blur-md px-4 py-2.5 rounded-full shadow-sm border border-gray-100 flex items-center gap-1.5 cursor-pointer pointer-events-auto" onClick={() => router.push('/collection')}>
           <span className="font-bold text-[17px] text-[#3182f6] tracking-tight">{points.toLocaleString()}</span>
           <span className="text-[15px] font-semibold text-gray-400">P</span>
         </div>
       </motion.div>
 
       <motion.div 
-        className="w-full flex flex-col gap-3 z-10"
+        className="w-full flex flex-col gap-3 z-10 pointer-events-none"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: "easeOut", delay: 0.1 }}
       >
         <button 
           onClick={() => router.push('/collection')}
-          className="w-full h-[56px] bg-[#3182f6] text-white rounded-[16px] font-bold text-[17px] shadow-sm active:scale-[0.98] transition-transform flex items-center justify-center"
+          className="pointer-events-auto w-full h-[56px] bg-[#3182f6] text-white rounded-[16px] font-bold text-[17px] shadow-sm active:scale-[0.98] transition-transform flex items-center justify-center"
         >
           콜렉션 열기 (새로운 왁뿌볼 획득)
         </button>
         <button 
           onClick={handleShare}
-          className="w-full h-[56px] bg-white text-[#4e5968] rounded-[16px] font-semibold text-[16px] shadow-sm border border-gray-100 active:bg-gray-50 active:scale-[0.98] transition-all flex items-center justify-center"
+          className="pointer-events-auto w-full h-[56px] bg-white text-[#4e5968] rounded-[16px] font-semibold text-[16px] shadow-sm border border-gray-100 active:bg-gray-50 active:scale-[0.98] transition-all flex items-center justify-center"
         >
           친구에게 공유하고 100P 받기
         </button>

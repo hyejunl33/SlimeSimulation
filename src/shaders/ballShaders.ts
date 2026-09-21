@@ -55,14 +55,11 @@ uniform float uTime;
 uniform vec3 uPointer;
 uniform float uPressure;
 
-varying vec3 vNormal;
-varying vec3 vPosition;
 varying float vFresnel;
 
 void main() {
-  vNormal = normal;
-  vPosition = position;
-
+  // CSM automatically defines vNormal and vPosition for MeshPhysicalMaterial
+  
   float baseNoise = snoise(position * 2.0 + uTime * 0.3) * 0.04;
   float dist = distance(position, uPointer);
   float crackEffect = exp(-dist * 4.0) * uPressure * 0.35;
@@ -81,8 +78,6 @@ export const waxFragmentShader = /* glsl */ `
 uniform float uTime;
 uniform float uPressure;
 
-varying vec3 vNormal;
-varying vec3 vPosition;
 varying float vFresnel;
 
 void main() {
@@ -110,13 +105,9 @@ uniform float uTime;
 uniform vec3 uPointer;
 uniform float uPressure;
 
-varying vec3 vNormal;
-varying vec3 vPosition;
-
 void main() {
-  vNormal = normal;
-  vPosition = position;
-
+  // CSM automatically defines vNormal and vPosition
+  
   float baseNoise = snoise(position * 0.7 + uTime * 0.1) * 0.18;
   vec3 toPointer = uPointer - position;
   float toLen = length(toPointer);
@@ -130,8 +121,6 @@ void main() {
 
 export const butterFragmentShader = /* glsl */ `
 uniform float uTime;
-varying vec3 vNormal;
-varying vec3 vPosition;
 
 void main() {
   vec3 baseColor = vec3(0.98, 0.88, 0.58);
