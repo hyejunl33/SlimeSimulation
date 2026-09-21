@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useCallback, useMemo, useEffect } from 'react';
+import { useRef, useCallback, useMemo, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import CustomShaderMaterial from 'three-custom-shader-material';
@@ -8,6 +8,9 @@ import { useCursor, Instances, Instance } from '@react-three/drei';
 import { waxVertexShader, waxFragmentShader, butterVertexShader, butterFragmentShader } from '../shaders/ballShaders';
 import { getSoundForBall } from '../sound/ballSound';
 import { useStore } from '../store/useStore';
+
+const BEAD_COUNT = 150;
+const RADIUS = 0.9; // inside the glass shell
 
 export default function WakppuBall() {
   const level = useStore((state) => state.level);
@@ -19,13 +22,68 @@ export default function WakppuBall() {
   
   useCursor(true, 'pointer', 'auto');
 
+  // Device Orientation state
+  const gravityRef = useRef(new THREE.Vector3(0, -9.8, 0));
+
+  useEffect(() => {
+    if (level !== 3) return;
+
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      // gamma: left-to-right (-90 to 90)
+      // beta: front-to-back (-180 to 180)
+      if (e.gamma !== null && e.beta !== null) {
+        const x = e.gamma / 90;
+        const y = -e.beta / 90; // negative so tilting phone down makes beads go negative Y
+        // clamp values and apply a scaling factor
+        gravityRef.current.set(x * 15, y * 15, -2);
+      }
+    };
+
+    // Note: iOS requires permission request for DeviceOrientationEvent
+    if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
+      const enableDeviceOrientation = () => {
+        (DeviceOrientationEvent as any).requestPermission()
+          .then((response: string) => {
+            if (response === 'granted') {
+              window.addEventListener('deviceorientation', handleOrientation);
+            }
+          })
+          .catch(console.error);
+        window.removeEventListener('pointerdown', enableDeviceOrientation);
+      };
+      window.addEventListener('pointerdown', enableDeviceOrientation);
+    } else {
+      window.addEventListener('deviceorientation', handleOrientation);
+    }
+
+    return () => {
+      window.removeEventListener('deviceorientation', handleOrientation);
+    };
+  }, [level]);
+
   const uniforms = useMemo(() => ({
     uTime: { value: 0 },
     uPointer: { value: new THREE.Vector3() },
     uPressure: { value: 0 },
   }), []);
 
-  useFrame(({ clock }) => {
+  // Simple physics state for beads
+  const beadsData = useMemo(() => {
+    return Array.from({ length: BEAD_COUNT }).map(() => ({
+      position: new THREE.Vector3(
+        (Math.random() - 0.5) * RADIUS,
+        (Math.random() - 0.5) * RADIUS,
+        (Math.random() - 0.5) * RADIUS
+      ),
+      velocity: new THREE.Vector3(0, 0, 0),
+      color: new THREE.Color().setHSL(Math.random(), 0.8, 0.5)
+    }));
+  }, []);
+
+  const instanceMeshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+
+  useFrame(({ clock }, delta) => {
     uniforms.uTime.value = clock.getElapsedTime();
     if (isDownRef.current) {
       pressureRef.current = Math.min(pressureRef.current + 0.05, 1.0);
@@ -33,6 +91,48 @@ export default function WakppuBall() {
       pressureRef.current *= 0.92;
     }
     uniforms.uPressure.value = pressureRef.current;
+
+    // Physics update for Level 3
+    if (level === 3 && instanceMeshRef.current) {
+      const dt = Math.min(delta, 0.05); // cap delta time
+      const friction = 0.98;
+
+      beadsData.forEach((bead, i) => {
+        // Add gravity
+        bead.velocity.addScaledVector(gravityRef.current, dt);
+
+        // If pointer is down, add repulsion from pointer
+        if (isDownRef.current) {
+          const repel = new THREE.Vector3().subVectors(bead.position, pointerRef.current);
+          const dist = repel.length();
+          if (dist < 0.5) {
+            bead.velocity.add(repel.normalize().multiplyScalar(15 * dt * (0.5 - dist)));
+          }
+        }
+
+        // Apply friction
+        bead.velocity.multiplyScalar(friction);
+
+        // Update position
+        bead.position.addScaledVector(bead.velocity, dt);
+
+        // Sphere bounds collision (inside the glass shell)
+        const distFromCenter = bead.position.length();
+        if (distFromCenter > RADIUS) {
+          // Push back inside
+          const normal = bead.position.clone().normalize();
+          bead.position.copy(normal.multiplyScalar(RADIUS));
+          // Reflect velocity (bounce)
+          bead.velocity.reflect(normal).multiplyScalar(0.5); // damping
+        }
+
+        // Apply to instance matrix
+        dummy.position.copy(bead.position);
+        dummy.updateMatrix();
+        instanceMeshRef.current!.setMatrixAt(i, dummy.matrix);
+      });
+      instanceMeshRef.current.instanceMatrix.needsUpdate = true;
+    }
   });
 
   const handlePointerMove = useCallback((e: any) => {
@@ -62,18 +162,6 @@ export default function WakppuBall() {
     if (sound.playRelease) sound.playRelease();
   }, [level]);
 
-  const beads = useMemo(() => {
-    if (level !== 3) return [];
-    return Array.from({ length: 150 }).map(() => ({
-      position: new THREE.Vector3(
-        (Math.random() - 0.5) * 1.5,
-        (Math.random() - 0.5) * 1.5,
-        (Math.random() - 0.5) * 1.5
-      ),
-      color: new THREE.Color().setHSL(Math.random(), 0.8, 0.5)
-    }));
-  }, [level]);
-
   if (level === 3) {
     return (
       <group onPointerMove={handlePointerMove} onPointerDown={handlePointerDown} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}>
@@ -81,10 +169,10 @@ export default function WakppuBall() {
           <icosahedronGeometry args={[1, 32]} />
           <meshPhysicalMaterial transmission={0.95} roughness={0.05} ior={1.4} thickness={0.5} transparent opacity={0.3} color="#ffffff" />
         </mesh>
-        <Instances limit={150}>
+        <Instances ref={instanceMeshRef} limit={BEAD_COUNT}>
           <sphereGeometry args={[0.06, 8, 8]} />
           <meshStandardMaterial />
-          {beads.map((bead, i) => (
+          {beadsData.map((bead, i) => (
             <Instance key={i} position={bead.position} color={bead.color} />
           ))}
         </Instances>

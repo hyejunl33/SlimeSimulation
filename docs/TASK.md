@@ -22,9 +22,9 @@
 - [ ] #6 출석/공유 보상 포인트 로직
 
 ## Sprint 4 — 3D 고도화 (Issue #7)
-- [ ] #7 구슬볼 InstancedMesh 파티클 + DeviceOrientation 중력
+- [x] #7 구슬볼 InstancedMesh 파티클 + DeviceOrientation 중력
 
 ## Sprint 5 — UI & 배포 (Issue #8, #9, #10)
-- [ ] #8 컬렉션/상점 화면 (TDS 기반)
-- [ ] #9 토스 미니앱 SDK 연동
+- [x] #8 컬렉션/상점 화면 (TDS 기반)
+- [x] #9 토스 미니앱 SDK 연동
 - [ ] #10 Vercel 배포 설정
